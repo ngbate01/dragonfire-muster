@@ -1,6 +1,6 @@
 "use strict";
 // Set this to your Buy Me a Coffee, Ko-fi, or Stripe payment link.
-const DONATE_URL = "";
+const DONATE_URL = "https://ko-fi.com/buymydragonsacoffee";
 
 const TROOPS = ["cavalry","shieldbearers","archers","spearmen","siege"];
 const RARITIES = ["mythic","legendary","epic","rare"];
