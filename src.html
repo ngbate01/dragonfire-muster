@@ -122,8 +122,34 @@ table.log td.r,table.log th.r{text-align:right}
 .builder .field{margin-bottom:10px}
 .builder select{width:100%}
 .saved-item{display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap}
-table.heir input{width:68px}
-table.heir td,table.heir th{white-space:nowrap}
+/* Heirlooms: drawn like the game's Dragon Growth tree.  Breed colors reuse the rarity tokens so dark mode follows. */
+.b-warrior{--bc:var(--myth)} .b-champion{--bc:var(--leg)} .b-hunter{--bc:var(--good)} .b-sentinel{--bc:var(--rare)}
+.b-all{--bc:var(--muted)} .b-rare{--bc:var(--rare)} .b-epic{--bc:var(--epic)} .b-legendary{--bc:var(--leg)}
+.htabs{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;scrollbar-width:thin}
+.htabs .btn{flex:none;display:flex;flex-direction:column;align-items:center;gap:0;line-height:1.2}
+.htabs .btn.on{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+.htabs .btn.on .hint{color:var(--surface)}
+.orbit{position:relative;width:min(100%,380px);aspect-ratio:1;margin:4px auto}
+.orbit .ring{position:absolute;border:1px dashed var(--line);border-radius:50%}
+.hamp{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:34%;aspect-ratio:1;border-radius:50%;background:var(--accent-soft);border:3px solid var(--accent);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:6px;color:var(--accent);font-weight:700;font-size:12px;line-height:1.2;gap:2px}
+.hamp small{font-weight:600;font-size:9.5px;color:var(--muted)}
+.hnode{position:absolute;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:2px;background:none;border:0;padding:0;cursor:pointer;color:var(--ink)}
+.hnode .hb{width:48px;height:48px;border-radius:50%;border:3px solid var(--bc);background:var(--surface);display:flex;flex-direction:column;align-items:center;justify-content:center;font-weight:700;font-size:11px;line-height:1.05}
+.hnode .hb small{font-weight:600;font-size:9.5px;color:var(--muted)}
+.hnode .hv{font-size:11.5px;font-weight:700;background:var(--sunk);border:1px solid var(--line);border-radius:6px;padding:0 4px}
+.hnode.empty .hv{color:var(--muted)}
+.hnode.empty .hb{border-style:dashed}
+.hnode.dormant{opacity:.5}
+.hnode.sel .hb{box-shadow:0 0 0 3px var(--accent)}
+.hlegend{display:flex;flex-wrap:wrap;gap:4px 12px;justify-content:center;font-size:12px;color:var(--muted)}
+.hlegend i{display:inline-block;width:10px;height:10px;border-radius:50%;border:2px solid var(--bc);margin-right:4px;vertical-align:-1px}
+.hpop{border:1px solid var(--line);border-top:3px solid var(--bc);border-radius:10px;background:var(--sunk);padding:12px}
+.hpop h3{font-size:15px;margin-bottom:6px}
+.orbit.dense .hamp{width:28%}
+.orbit.dense .hb{width:42px;height:42px;font-size:10px}
+.orbit.dense .hv{font-size:10.5px;padding:0 3px}
+@media (max-width:520px){.hnode .hb{width:40px;height:40px;font-size:10px}.hnode .hv{font-size:10.5px}.hamp small:last-child{display:none}
+  .orbit.dense .hb{width:34px;height:34px;font-size:9px;border-width:2px}.orbit.dense .hb small{font-size:8.5px}.orbit.dense .hv{font-size:9.5px}}
 
 dialog{border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink);padding:0;width:min(640px,calc(100vw - 32px));max-height:calc(100vh - 40px)}
 dialog::backdrop{background:rgba(10,12,18,.55)}

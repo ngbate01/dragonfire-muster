@@ -876,42 +876,79 @@ function pasteCode(){
   });
 }
 /* ---------- heirlooms ---------- */
-const BREEDS = ["warrior","champion","hunter","sentinel"];
-// One row per kind of breed node, in the order the tree unlocks them.
-const HEIR_ROWS = [
-  {g:3, kind:"dmg", label:"Damage"}, {g:6, kind:"dmg", label:"Damage"},
-  {g:4, kind:"taken", label:"Damage taken"}, {g:7, kind:"taken", label:"Damage taken"},
-  {g:5, stat:"initiative", label:"Initiative"}, {g:5, stat:"strength", label:"Strength"}, {g:5, stat:"intelligence", label:"Intelligence"}, {g:5, stat:"instinct", label:"Instinct"},
-  {g:1, kind:"dmg", label:"Damage vs resource defenders", rss:true}, {g:1, kind:"taken", label:"Damage taken vs resource defenders", rss:true}, {g:2, kind:"xp", label:"XP vs resource defenders", rss:true}
-];
-const heirNode = (g, applies, kind, stat) => HEIR.nodes.find(n=>n.group===g && n.appliesTo===applies && (!kind || n.kind===kind) && (!stat || n.stat===stat));
+// The entry screen mirrors the game's Dragon Growth tree: nine groups in order, each an Amplifier with its nodes
+// around it.  Tapping a node opens a box laid out like the game's popup.
+const ROMAN = ["","I","II","III","IV","V","VI","VII","VIII","IX"];
+const HEIR_FACE = {dmg:"DMG", taken:"TAKEN", xp:"XP", initiative:"INI", strength:"STR", intelligence:"INT", instinct:"INS", all:"ALL"};
+const heirGroups = [...new Set(HEIR.nodes.map(n=>n.group))].sort((a,b)=>a-b);
+const heirIn = g => HEIR.nodes.filter(n=>n.group===g);
+const heirWho = n => { const [k,x] = n.appliesTo.split(":"); return k==="all" ? "all" : x; };
+const heirFmt = v => v===undefined ? "—" : (v>0?"+":"")+v+"%";
 function renderHeir(){
   const h = state.heirlooms, n = Object.keys(h.values).length;
   $("heirSum").textContent = n ? "Heirlooms: "+n+" Dragon Growth node"+(n>1?"s":"")+(h.houseLevel?" · House Level "+h.houseLevel:"")+(h.readAt?" · read "+new Date(h.readAt+"T12:00").toLocaleDateString("en-US",{month:"short",day:"numeric"}):"")
     : "Heirlooms: not entered.  Dragon Growth adds breed bonuses in battle.";
 }
+const heirUI = {draft:null, g:1, sel:null};
 function heirDialog(){
-  const h = state.heirlooms;
-  const inp = n => n ? `<input type="number" step="any" data-hn="${n.id}" value="${h.values[n.id]!==undefined?h.values[n.id]:""}" aria-label="${esc(n.name)}" placeholder="0">` : "";
-  const lv = n => n ? " · Lv "+n.houseLevel : "";
+  heirUI.draft = JSON.parse(JSON.stringify(state.heirlooms)); heirUI.g = heirGroups[0]; heirUI.sel = null;
   openDialog(`<h2 style="font-size:18px">Heirlooms · Dragon Growth</h2>
-    <p class="hint" style="margin:0">Open each node in game and type the first number under Upgrade effect, the one before the arrow.  It already includes the Amplifier.  Leave nodes you have not bought empty.  Damage taken shows as a minus number in game; either sign is fine here.</p>
-    <div class="fgrid"><label>House Level this reign<input type="number" id="heirLevel" min="0" value="${h.houseLevel||""}" placeholder="Not entered"></label></div>
-    <div class="tbl-wrap"><table class="log heir"><thead><tr><th>Node</th>${BREEDS.map(b=>`<th class="r">${cap(b)}</th>`).join("")}</tr></thead><tbody>
-      ${HEIR_ROWS.map(r=>{ const ns = BREEDS.map(b=>heirNode(r.g,"breed:"+b,r.kind,r.stat)); return `<tr><td>${esc(r.label)}<span class="hint" style="display:block;margin:0">${r.rss?"Record only · ":""}%${lv(ns.find(Boolean))}</span></td>${ns.map(n=>`<td class="r">${inp(n)}</td>`).join("")}</tr>`; }).join("")}
-    </tbody></table></div>
-    <div><div class="lbl" style="margin-bottom:4px">All breeds${lv(heirNode(8,"all"))}</div><div class="fgrid">${["initiative","strength","intelligence","instinct"].map(s=>{ const n=heirNode(8,"all","stat",s); return `<label>${cap(s)} %${inp(n)}</label>`; }).join("")}</div></div>
-    <div><div class="lbl" style="margin-bottom:4px">By rarity, all four stats${lv(heirNode(9,"rarity:rare"))}</div><div class="fgrid">${["rare","epic","legendary"].map(r=>{ const n=heirNode(9,"rarity:"+r); return `<label>${cap(r)} %${inp(n)}</label>`; }).join("")}</div></div>
-    <p class="hint" style="margin:0">Fighting fit and Siege count damage, damage taken and stats for each dragon's breed and rarity.  That is theory, like the rest of fighting fit.  Army power stays the number the game shows, because the game adds heirlooms only when a battle starts.  Resource-defender nodes are kept as a record and not counted.</p>
+    <p class="hint" style="margin:0">Laid out like the game.  Pick the same group you have open in game, tap a node, and type the number its popup shows under Upgrade effect, the one before the arrow.  Leave nodes you have not bought empty.</p>
+    <div class="fgrid"><label>House Level this reign<input type="number" id="heirLevel" min="0" inputmode="numeric" value="${heirUI.draft.houseLevel||""}" placeholder="Not entered"></label></div>
+    <div class="htabs" id="heirTabs" role="tablist" aria-label="Dragon Growth groups"></div>
+    <div class="orbit" id="heirOrbit"></div>
+    <div class="hlegend">${["warrior","champion","hunter","sentinel"].map(b=>`<span class="b-${b}"><i></i>${cap(b)}</span>`).join("")}<span class="b-all"><i></i>All breeds</span></div>
+    <div id="heirPop"></div>
+    <p class="hint" style="margin:0">Fighting fit and Siege count damage, damage taken and stats for each dragon's breed and rarity.  That is theory, like the rest of fighting fit.  Army power stays the number the game shows, because the game adds heirlooms only when a battle starts.</p>
     <div class="dlg-foot"><div class="row"><button class="btn danger" type="button" id="heirClear">Clear heirlooms</button></div>
       <div class="row"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit">Save</button></div></div>`,
   ()=>{
-    const values = {}; $("dlgForm").querySelectorAll("[data-hn]").forEach(i=>{ if(i.value!=="") values[i.dataset.hn] = +i.value; });
     const now = new Date(), today = now.getFullYear()+"-"+String(now.getMonth()+1).padStart(2,"0")+"-"+String(now.getDate()).padStart(2,"0");
-    state.heirlooms = normalizeHeirlooms({houseLevel:$("heirLevel").value, readAt:today, values});
+    state.heirlooms = normalizeHeirlooms({houseLevel:$("heirLevel").value, readAt:today, values:heirUI.draft.values});
     state.isSample=false; persist(); renderAll(); toast("Heirlooms saved.  Fighting fit now counts them.");
   });
+  const f = $("dlgForm");
+  f.onclick = e=>{
+    const t = e.target.closest("[data-hg],[data-hsel],[data-hstep]"); if(!t) return;
+    if(t.dataset.hg){ heirUI.g = +t.dataset.hg; heirUI.sel = null; drawHeir(); }
+    if(t.dataset.hsel){ heirUI.sel = t.dataset.hsel; drawHeir(); $("heirPop").scrollIntoView({block:"nearest", behavior:"smooth"}); }
+    if(t.dataset.hstep){ const all = heirGroups.flatMap(heirIn), i = all.findIndex(n=>n.id===heirUI.sel), n = all[(i+(+t.dataset.hstep)+all.length)%all.length];
+      heirUI.sel = n.id; heirUI.g = n.group; drawHeir(); }
+  };
+  $("heirLevel").oninput = e=>{ heirUI.draft.houseLevel = +e.target.value||0; drawHeir(true); };
   $("heirClear").onclick = e=>{ if(!armed(e.currentTarget)) return; state.heirlooms = normalizeHeirlooms(); state.isSample=false; persist(); renderAll(); $("dlg").close(); toast("Heirlooms cleared"); };
+  drawHeir();
+}
+// keepPop: redraw the tabs and circle but leave the popup alone, so typing keeps its focus.
+function drawHeir(keepPop){
+  const d = heirUI.draft, ns = heirIn(heirUI.g), lv = Math.min(...ns.map(n=>n.houseLevel));
+  $("heirTabs").innerHTML = heirGroups.map(g=>{ const gs = heirIn(g), done = gs.filter(n=>d.values[n.id]!==undefined).length;
+    return `<button type="button" role="tab" aria-selected="${g===heirUI.g}" class="btn sm ${g===heirUI.g?"on":""}" data-hg="${g}"><b>${ROMAN[g]}</b> <span class="hint" style="margin:0">Lv ${Math.min(...gs.map(n=>n.houseLevel))} · ${done}/${gs.length}</span></button>`; }).join("");
+  const dense = ns.length>8, r = dense ? 43 : 35;
+  $("heirOrbit").classList.toggle("dense", dense);
+  $("heirOrbit").innerHTML = `<div class="ring" style="inset:${50-r}%"></div>
+    <div class="hamp"><span>Amplifier ${ROMAN[heirUI.g]}</span><small>Reach House Lv. ${lv}</small><small>Already counted in each node's number</small></div>`+
+    ns.map((n,i)=>{ const a = i/ns.length*2*Math.PI - Math.PI/2, v = d.values[n.id], who = heirWho(n), dormant = d.houseLevel && d.houseLevel < n.houseLevel;
+      return `<button type="button" class="hnode b-${who} ${v===undefined?"empty":""} ${n.id===heirUI.sel?"sel":""} ${dormant?"dormant":""}" data-hsel="${n.id}" style="left:${50+r*Math.cos(a)}%;top:${50+r*Math.sin(a)}%" aria-label="${esc(n.name)}: ${v===undefined?"not entered":heirFmt(v)}">
+        <span class="hb">${HEIR_FACE[n.stat||n.kind]}<small>${who==="all"?"All":cap(who).slice(0,3)}</small></span><span class="hv num">${heirFmt(v)}</span></button>`; }).join("");
+  if(keepPop) return;
+  const n = HEIR.nodes.find(x=>x.id===heirUI.sel);
+  if(!n){ $("heirPop").innerHTML = `<p class="hint" style="text-align:center;margin:0">Tap a node to enter its value.</p>`; return; }
+  const v = d.values[n.id], dormant = d.houseLevel && d.houseLevel < n.houseLevel;
+  $("heirPop").innerHTML = `<div class="hpop b-${heirWho(n)}">
+    <h3>${esc(n.name)}</h3>
+    <div class="lbl">Upgrade effect</div>
+    <label class="row" style="font-weight:600">${esc(n.name)} <input type="number" step="any" inputmode="decimal" id="heirVal" value="${v===undefined?"":v}" placeholder="0" style="width:96px"> %</label>
+    <p class="hint" style="margin:0">The number before the arrow.  ${n.kind==="taken"?"The game shows it as a minus number; either sign works.  ":""}It already includes the Amplifier.</p>
+    <div class="lbl" style="margin-top:8px">Activation requirement</div>
+    <p style="margin:0">Reach House Lv. ${n.houseLevel}${dormant?` <span class="chip">Not active at House Level ${d.houseLevel}</span>`:""}</p>
+    ${n.scope==="rss"?`<p class="hint" style="margin:6px 0 0">Applies only against resource-tile defenders, so the planner keeps it as a record and does not count it.</p>`:""}
+    <div class="row" style="justify-content:space-between;margin-top:10px"><button type="button" class="btn sm" data-hstep="-1">Previous node</button><button type="button" class="btn sm primary" data-hstep="1">Next node</button></div></div>`;
+  const inp = $("heirVal");
+  inp.oninput = ()=>{ if(inp.value==="") delete d.values[n.id]; else if(isFinite(+inp.value)) d.values[n.id] = +inp.value; drawHeir(true); };
+  inp.onkeydown = e=>{ if(e.key==="Enter"){ e.preventDefault(); f_next(); } };
+  const f_next = ()=>$("heirPop").querySelector('[data-hstep="1"]').click();
+  inp.focus({preventScroll:true});
 }
 
 function aboutDialog(){
