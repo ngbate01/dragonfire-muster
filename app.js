@@ -47,7 +47,7 @@ const WANTS = {
 const TAG_HELP = "Ability words like burn, panic, slow, bleed, stun, taunt, control, advantage, firstStrike, recovery, or wants burn / wants sentinel.  Advanced: long-fight, sustain, vg:left:tactical.  Add @6 if it comes from a habit that unlocks at 6 stars.";
 
 const GOAL_HINT = {
-  fit:"Ranks by placement, troop affinity, ability pairings and enemy troops.  This is theory until you test it in game.",
+  fit:"Ranks by placement, troop affinity, ability pairings, enemy troops and your heirlooms.  This is theory until you test it in game.",
   power:"Ranks by the army power the game shows: base power plus bonuses you have measured.  Untested bonuses are flagged to test, never counted.",
   siege:"Fighting fit with siege troops, and siege affinity counts double.  Theory until tested.",
   even:"Spreads army power so your weakest march is as strong as it can be."
@@ -57,6 +57,8 @@ const GOAL_HINT = {
 const CATALOG = JSON.parse(document.getElementById("catalogData").textContent);
 const CAT = new Map(CATALOG.map(c=>[c.name.toLowerCase(), c]));
 const catOf = d => CAT.get(String(d.name||"").toLowerCase());
+// Dragon Growth heirloom nodes.  Heirlooms are account-wide, so each roster keeps one set, never one per dragon.
+const HEIR = JSON.parse(document.getElementById("heirloomData").textContent);
 
 /* ---------- state: a book of rosters ---------- */
 let book = {rosters:[], cur:null};
@@ -66,10 +68,10 @@ let builder = {ids:[null,null,null], troop:"auto"};
 const ctx = {enemy:""};
 
 function sample(){ return JSON.parse(document.getElementById("sampleData").textContent); }
-function newRoster(name, roster){ return {id:uid(), name, roster:roster||[], saved:[], tests:[], isSample:false}; }
+function newRoster(name, roster){ return {id:uid(), name, roster:roster||[], saved:[], tests:[], heirlooms:normalizeHeirlooms(), isSample:false}; }
 function sampleRoster(){
   const s = sample(), r = newRoster("Sample roster", s.roster.map(normalize)); r.isSample = true;
-  r.tests = importTests(s.tests||[], r.roster); return r;
+  r.tests = importTests(s.tests||[], r.roster); r.heirlooms = normalizeHeirlooms(s.heirlooms); return r;
 }
 function switchTo(id){
   state = book.rosters.find(r=>r.id===id) || book.rosters[0]; book.cur = state.id;
@@ -79,7 +81,7 @@ function load(){
   try{
     const b = JSON.parse(localStorage.getItem(KEY));
     if(b && Array.isArray(b.rosters) && b.rosters.length){
-      book = b; book.rosters.forEach(r=>{ r.roster = r.roster.map(normalize); r.saved = r.saved||[]; r.tests = r.tests||[]; });
+      book = b; book.rosters.forEach(r=>{ r.roster = r.roster.map(normalize); r.saved = r.saved||[]; r.tests = r.tests||[]; r.heirlooms = normalizeHeirlooms(r.heirlooms); });
       book.rosters = book.rosters.map(r=>r.isSample ? Object.assign(sampleRoster(), {id:r.id, saved:r.saved}) : r);
       switchTo(book.cur); return;
     }
@@ -98,7 +100,7 @@ function persist(){
   schedulePush();
 }
 const localHash = {};
-const cloudData = r => JSON.stringify({name:r.name, roster:r.roster, saved:r.saved, tests:r.tests});
+const cloudData = r => JSON.stringify({name:r.name, roster:r.roster, saved:r.saved, tests:r.tests, heirlooms:r.heirlooms});
 
 /* ---------- accounts and cloud saves ---------- */
 // The publishable key is meant to sit in a web page.  Row-level security limits each person to their own rosters.
@@ -128,7 +130,7 @@ async function cloudPush(){
   try{
     const changed = book.rosters.filter(r=>!r.isSample && cloud.hash[r.id]!==cloudData(r));
     if(changed.length){
-      const rows = changed.map(r=>({client_id:r.id, name:String(r.name).slice(0,100), data:{roster:r.roster, saved:r.saved, tests:r.tests},
+      const rows = changed.map(r=>({client_id:r.id, name:String(r.name).slice(0,100), data:{roster:r.roster, saved:r.saved, tests:r.tests, heirlooms:r.heirlooms},
         updated_at:new Date(r.updatedAt||Date.now()).toISOString()}));
       const {error} = await cloud.client.from("rosters").upsert(rows, {onConflict:"user_id,client_id"});
       if(error) throw error;
@@ -146,7 +148,7 @@ async function cloudPull(){
   const {data, error} = await cloud.client.from("rosters").select("client_id,name,data,updated_at");
   if(error){ setSync("Couldn't reach your account.  Showing what is saved on this device.", true); return; }
   data.forEach(row=>{
-    const remote = {id:row.client_id, name:row.name, roster:(row.data.roster||[]).map(normalize), saved:row.data.saved||[], tests:row.data.tests||[], isSample:false, updatedAt:Date.parse(row.updated_at)};
+    const remote = {id:row.client_id, name:row.name, roster:(row.data.roster||[]).map(normalize), saved:row.data.saved||[], tests:row.data.tests||[], heirlooms:normalizeHeirlooms(row.data.heirlooms), isSample:false, updatedAt:Date.parse(row.updated_at)};
     const i = book.rosters.findIndex(r=>r.id===row.client_id);
     if(i<0) book.rosters.push(remote);
     else if((book.rosters[i].updatedAt||0) <= remote.updatedAt) book.rosters[i] = remote;  // newer copy wins
@@ -243,6 +245,32 @@ function normalize(d){
     xp: Array.isArray(d.xp) && d.xp.length===2 ? d.xp.map(x=>Math.max(0,+x||0)) : null
   };
 }
+// Heirloom values are typed as the game shows them (the number before the arrow in each node's popup),
+// which already includes the group's Amplifier.  Unknown node ids are dropped; a missing field means none entered.
+function normalizeHeirlooms(h){
+  h = h && typeof h==="object" ? h : {};
+  const src = h.values && typeof h.values==="object" ? h.values : {}, values = {};
+  HEIR.nodes.forEach(n=>{ const v = +src[n.id]; if(isFinite(v) && v) values[n.id] = Math.max(-100, Math.min(100, Math.round(v*100)/100)); });
+  const lv = Math.round(+h.houseLevel||0);
+  return {houseLevel: lv>0 && lv<1000 ? lv : 0, readAt: /^\d{4}-\d{2}-\d{2}$/.test(h.readAt||"") ? h.readAt : "", values};
+}
+const r2 = x => Math.round(x*100)/100;
+// What a dragon's heirlooms add in battle, in percent of its power.  The game applies them when the fight starts,
+// so the power it shows leaves them out.  Damage dealt and damage taken count one for one, and a single-stat node
+// counts a quarter (one of the four stats).  Resource-defender nodes only apply on resource tiles and are not counted.
+// Theory, not measured.
+function heirEdge(d, h){
+  h = h || state.heirlooms; if(!h) return null;
+  let dmg = 0, taken = 0, stats = 0;
+  HEIR.nodes.forEach(n=>{
+    const v = h.values[n.id]; if(!v || n.scope!=="all" || (h.houseLevel && h.houseLevel < n.houseLevel)) return;
+    const [k, x] = n.appliesTo.split(":");
+    if((k==="breed" && x!==d.breed) || (k==="rarity" && x!==d.rarity)) return;
+    if(n.kind==="dmg") dmg += v; else if(n.kind==="taken") taken += Math.abs(v); else if(n.kind==="stat") stats += n.stat==="all" ? v : v/4;
+  });
+  const pct = r1(dmg+taken+stats);
+  return pct ? {pct, dmg:r2(dmg), taken:r2(taken), stats:r2(stats)} : null;
+}
 // Power the scorer uses.  A dragon with no power entered gets an estimate from rarity and stars.
 const EST_BASE = {rare:18000, epic:26000, legendary:34000, mythic:42000};
 const isEst = d => !(d.power>0);
@@ -305,7 +333,7 @@ function notePref(d){
   if(/(vanguard core|run in the vanguard|free-to-play vanguard|anchor \w+ in the vanguard)/i.test(n)) return "vanguard";
   return c ? c.pos : null;
 }
-function prep(d){ return {d, tags:effTags(d), w:tagWeights(d), locked:lockedTags(d), pref:notePref(d), p:P(d)}; }
+function prep(d){ return {d, tags:effTags(d), w:tagWeights(d), locked:lockedTags(d), pref:notePref(d), p:P(d), heir:heirEdge(d)}; }
 const tagW = (p, tag) => p.w.get(tag) || 1;
 const provW = (p, x, w) => x==="sentinel" ? 1 : Math.max(1, ...provKeys(x,w).filter(k=>p.tags.has(k)).map(k=>tagW(p,k)));
 const r1 = x => Math.round(x*10)/10;
@@ -336,9 +364,11 @@ function scoreTeam(team, troop, goal){
     if(p.pref) fit += p.pref===pos ? 5 : -3;
     let aff = AFF_PCT[String(d.affinity[troop])] || 0;
     if(goal==="siege") aff *= 2;
-    const val = p.p * (1 + (fit+aff)/100);
+    const heir = p.heir ? p.heir.pct : 0;
+    const val = p.p * (1 + (fit+aff+heir)/100);
     sum += val;
     lines.push({k:"dragon", name:d.name, pos, fit, aff, troop, val});
+    if(p.heir) lines.push({k:"heir", name:d.name, breed:d.breed, rarity:d.rarity, he:p.heir});
   });
   let syn = 0; const pairs = [];
   const add = (pct, txt, pair)=>{ syn += pct; lines.push({k:"team", pct, txt, pair}); if(pair) pairs.push(pair); };
@@ -510,6 +540,8 @@ function evidenceFor(pair){
 function whyHTML(r){
   const rows = r.lines.map(l=>{
     if(l.k==="dragon"){ const pct=l.fit+l.aff; return `<tr><td><b>${esc(l.name)}</b> on ${POS_LABEL[l.pos]}: placement ${sign(l.fit)}%, ${l.troop} affinity ${sign(l.aff)}%${l.aff>0?" (the game's +20% stat boost)":""}</td><td class="num ${pct>0?"pos":pct<0?"neg":""}">${sign(pct)}%</td></tr>`; }
+    if(l.k==="heir"){ const h=l.he, parts=[h.dmg&&"damage +"+h.dmg+"%", h.taken&&"damage taken −"+h.taken+"%", h.stats&&"stats +"+h.stats+"%"].filter(Boolean).join(", ");
+      return `<tr><td><b>${esc(l.name)}</b>'s heirlooms (${l.breed}, ${l.rarity}): ${parts}.  The game adds these when the battle starts, not to the power it shows.</td><td class="num pos">${sign(h.pct)}%</td></tr>`; }
     return `<tr><td>${esc(l.txt)}${evidenceFor(l.pair)}</td><td class="num ${l.pct>0?"pos":l.pct<0?"neg":""}">${l.pct?sign(l.pct)+"%":"—"}</td></tr>`;
   }).join("");
   return `<details class="why"><summary>Why this lineup</summary>
@@ -637,13 +669,15 @@ async function copyText(txt, label){
 function shareCode(){
   const d = state.roster.map(x=>catOf(x) ? [x.name,x.power,x.starRank,x.reignLevel,x.troopCapacity,x.active?1:0,x.habitLevels,x.speed,x.xp] : x);
   const t = state.tests.filter(t=>t.ids.every(byId)).map(t=>[...t.ids.map(id=>byId(id).name),t.troop,t.inGame,t.kept?1:0]);
-  return "DFR:"+b64e({v:1,n:state.name,d,t});
+  const hl = state.heirlooms, h = Object.keys(hl.values).length ? {l:hl.houseLevel, d:hl.readAt, v:hl.values} : undefined;
+  return "DFR:"+b64e({v:1,n:state.name,d,t,h});
 }
 function rosterFromShare(code){
   const o = b64d(code.trim().replace(/^.*?DFR:/,""));
   const roster = o.d.map(x=>normalize(Array.isArray(x) ? {name:x[0],power:x[1],starRank:x[2],reignLevel:x[3],troopCapacity:x[4],active:!!x[5],habitLevels:x[6],speed:x[7],xp:x[8]} : Object.assign({}, x, {id:undefined})));
   const r = newRoster(o.n ? o.n+" (shared)" : "Shared roster", roster);
   r.tests = importTests((o.t||[]).map(a=>({left:a[0],vanguard:a[1],right:a[2],troop:a[3],inGamePower:a[4],kept:a[5]})), roster);
+  if(o.h) r.heirlooms = normalizeHeirlooms({houseLevel:o.h.l, readAt:o.h.d, values:o.h.v});
   return r;
 }
 const framed = (()=>{ try{ return window.self!==window.top; }catch(e){ return true; } })();
@@ -782,7 +816,7 @@ function parseImport(txt){
   else if(!/^[\[{]/.test(txt)){ const i = txt.search(/[\[{]/); if(i>=0) txt = txt.slice(i); }
   const data = JSON.parse(txt);
   if(Array.isArray(data)) return {roster:data, tests:[]};
-  if(data && Array.isArray(data.roster)) return {roster:data.roster, tests:Array.isArray(data.tests)?data.tests:[]};
+  if(data && Array.isArray(data.roster)) return {roster:data.roster, tests:Array.isArray(data.tests)?data.tests:[], heirlooms:data.heirlooms};
   throw new Error("no roster");
 }
 function importDialog(){
@@ -802,7 +836,7 @@ function importDialog(){
       let r;
       try{ r = parsed.share ? rosterFromShare(parsed.share) : newRoster("Imported roster", parsed.roster.map(normalize)); }
       catch(e){ $("impErr").textContent = "That share code could not be read.  Check that it was copied in full."; return false; }
-      if(!parsed.share) r.tests = importTests(parsed.tests, r.roster);
+      if(!parsed.share){ r.tests = importTests(parsed.tests, r.roster); r.heirlooms = normalizeHeirlooms(parsed.heirlooms); }
       book.rosters.push(r); switchTo(r.id); persist(); renderAll(); toast("Imported as "+r.name); return;
     }
     let added = 0, updated = 0;
@@ -814,14 +848,16 @@ function importDialog(){
     const seen = new Set(); state.roster.forEach(d=>{ if(seen.has(d.id)) d.id=uid(); seen.add(d.id); });
     const tests = importTests(parsed.tests).filter(t=>!state.tests.some(x=>x.inGame===t.inGame && x.ids.join()===t.ids.join()));
     state.tests.push(...tests);
+    const heir = normalizeHeirlooms(parsed.heirlooms), gotHeir = Object.keys(heir.values).length>0;
+    if(gotHeir) state.heirlooms = heir;
     state.isSample=false; builder.ids=[null,null,null]; lastResults=null; persist(); renderAll();
-    toast(`${updated} updated, ${added} added, ${tests.length} in-game result${tests.length===1?"":"s"}`);
+    toast(`${updated} updated, ${added} added, ${tests.length} in-game result${tests.length===1?"":"s"}${gotHeir?", heirlooms":""}`);
   });
   $("impFile").onchange = e=>{ const file=e.target.files[0]; if(!file) return; const rd=new FileReader(); rd.onload=()=>{$("impText").value=rd.result;}; rd.readAsText(file); };
 }
 function exportRoster(){
   const tests = state.tests.filter(t=>t.ids.every(byId)).map(t=>({left:t.ids[0],vanguard:t.ids[1],right:t.ids[2],troop:t.troop,inGamePower:t.inGame,basePower:basePower(t.ids),kept:t.kept}));
-  const txt = JSON.stringify({name:state.name, roster:state.roster, tests}, null, 2);
+  const txt = JSON.stringify({name:state.name, roster:state.roster, tests, heirlooms:state.heirlooms}, null, 2);
   if(!framed){ try{ const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([txt],{type:"application/json"})); a.download=state.name.replace(/[^\w -]+/g,"")+".json"; document.body.appendChild(a); a.click(); a.remove(); toast("Roster file downloaded"); return; }catch(e){} }
   openText("Your roster", txt, "Copy this text and save it, or paste it into Import on another device.");
 }
@@ -839,17 +875,57 @@ function pasteCode(){
     }catch(e){ $("codeErr").textContent = "That code could not be read.  Check that it was copied in full."; return false; }
   });
 }
+/* ---------- heirlooms ---------- */
+const BREEDS = ["warrior","champion","hunter","sentinel"];
+// One row per kind of breed node, in the order the tree unlocks them.
+const HEIR_ROWS = [
+  {g:3, kind:"dmg", label:"Damage"}, {g:6, kind:"dmg", label:"Damage"},
+  {g:4, kind:"taken", label:"Damage taken"}, {g:7, kind:"taken", label:"Damage taken"},
+  {g:5, stat:"initiative", label:"Initiative"}, {g:5, stat:"strength", label:"Strength"}, {g:5, stat:"intelligence", label:"Intelligence"}, {g:5, stat:"instinct", label:"Instinct"},
+  {g:1, kind:"dmg", label:"Damage vs resource defenders", rss:true}, {g:1, kind:"taken", label:"Damage taken vs resource defenders", rss:true}, {g:2, kind:"xp", label:"XP vs resource defenders", rss:true}
+];
+const heirNode = (g, applies, kind, stat) => HEIR.nodes.find(n=>n.group===g && n.appliesTo===applies && (!kind || n.kind===kind) && (!stat || n.stat===stat));
+function renderHeir(){
+  const h = state.heirlooms, n = Object.keys(h.values).length;
+  $("heirSum").textContent = n ? "Heirlooms: "+n+" Dragon Growth node"+(n>1?"s":"")+(h.houseLevel?" · House Level "+h.houseLevel:"")+(h.readAt?" · read "+new Date(h.readAt+"T12:00").toLocaleDateString("en-US",{month:"short",day:"numeric"}):"")
+    : "Heirlooms: not entered.  Dragon Growth adds breed bonuses in battle.";
+}
+function heirDialog(){
+  const h = state.heirlooms;
+  const inp = n => n ? `<input type="number" step="any" data-hn="${n.id}" value="${h.values[n.id]!==undefined?h.values[n.id]:""}" aria-label="${esc(n.name)}" placeholder="0">` : "";
+  const lv = n => n ? " · Lv "+n.houseLevel : "";
+  openDialog(`<h2 style="font-size:18px">Heirlooms · Dragon Growth</h2>
+    <p class="hint" style="margin:0">Open each node in game and type the first number under Upgrade effect, the one before the arrow.  It already includes the Amplifier.  Leave nodes you have not bought empty.  Damage taken shows as a minus number in game; either sign is fine here.</p>
+    <div class="fgrid"><label>House Level this reign<input type="number" id="heirLevel" min="0" value="${h.houseLevel||""}" placeholder="Not entered"></label></div>
+    <div class="tbl-wrap"><table class="log heir"><thead><tr><th>Node</th>${BREEDS.map(b=>`<th class="r">${cap(b)}</th>`).join("")}</tr></thead><tbody>
+      ${HEIR_ROWS.map(r=>{ const ns = BREEDS.map(b=>heirNode(r.g,"breed:"+b,r.kind,r.stat)); return `<tr><td>${esc(r.label)}<span class="hint" style="display:block;margin:0">${r.rss?"Record only · ":""}%${lv(ns.find(Boolean))}</span></td>${ns.map(n=>`<td class="r">${inp(n)}</td>`).join("")}</tr>`; }).join("")}
+    </tbody></table></div>
+    <div><div class="lbl" style="margin-bottom:4px">All breeds${lv(heirNode(8,"all"))}</div><div class="fgrid">${["initiative","strength","intelligence","instinct"].map(s=>{ const n=heirNode(8,"all","stat",s); return `<label>${cap(s)} %${inp(n)}</label>`; }).join("")}</div></div>
+    <div><div class="lbl" style="margin-bottom:4px">By rarity, all four stats${lv(heirNode(9,"rarity:rare"))}</div><div class="fgrid">${["rare","epic","legendary"].map(r=>{ const n=heirNode(9,"rarity:"+r); return `<label>${cap(r)} %${inp(n)}</label>`; }).join("")}</div></div>
+    <p class="hint" style="margin:0">Fighting fit and Siege count damage, damage taken and stats for each dragon's breed and rarity.  That is theory, like the rest of fighting fit.  Army power stays the number the game shows, because the game adds heirlooms only when a battle starts.  Resource-defender nodes are kept as a record and not counted.</p>
+    <div class="dlg-foot"><div class="row"><button class="btn danger" type="button" id="heirClear">Clear heirlooms</button></div>
+      <div class="row"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit">Save</button></div></div>`,
+  ()=>{
+    const values = {}; $("dlgForm").querySelectorAll("[data-hn]").forEach(i=>{ if(i.value!=="") values[i.dataset.hn] = +i.value; });
+    const now = new Date(), today = now.getFullYear()+"-"+String(now.getMonth()+1).padStart(2,"0")+"-"+String(now.getDate()).padStart(2,"0");
+    state.heirlooms = normalizeHeirlooms({houseLevel:$("heirLevel").value, readAt:today, values});
+    state.isSample=false; persist(); renderAll(); toast("Heirlooms saved.  Fighting fit now counts them.");
+  });
+  $("heirClear").onclick = e=>{ if(!armed(e.currentTarget)) return; state.heirlooms = normalizeHeirlooms(); state.isSample=false; persist(); renderAll(); $("dlg").close(); toast("Heirlooms cleared"); };
+}
+
 function aboutDialog(){
   openDialog(`<h2 style="font-size:18px">About Dragonfire Muster</h2>
     <p>A free formation planner for Game of Thrones: Dragonfire.  It is fan-made and not affiliated with the game or its publisher.</p>
     <p><b>Privacy.</b>  Without an account, your rosters are saved on this device only and nothing is sent to a server.  An account is optional.  If you create one, we store your email address and your rosters so you can use them on any device; your password is handled by our sign-in provider, Supabase, and we never see it.  You can delete your account and everything in it at any time from Account.  There is no tracking and no advertising.  A share link carries the roster inside the link itself.</p>
     <p><b>How it decides.</b>  Army power is what the game shows: the sum of your dragons' power plus any bonus you have measured.  Fighting fit is our theory from each dragon's skills, the +20% troop affinity stat boost, and the troop counter cycle (Cavalry beats Shieldbearers, Shieldbearers beat Archers, Archers beat Spearmen, Spearmen beat Cavalry, and Siege is weak to all).  Record your in-game results and they override the theory.</p>
+    <p><b>Heirlooms.</b>  The game adds Dragon Growth bonuses when a battle starts, so the army power it shows leaves them out, and so does Army power here.  Fighting fit counts the damage, damage taken and stat bonuses you enter for each dragon's breed and rarity.  That part is theory too.</p>
     <p><b>Dragon data</b> is compiled from community sources and in-game testing.  The game rebalances, so treat it as a close guide.</p>
     <div class="dlg-foot"><span></span><button class="btn primary" type="button" data-close>Close</button></div>`,()=>{});
 }
 
 /* ---------- wiring ---------- */
-function renderAll(){ renderRoster(); renderResults(); renderTests(); renderSaved(); }
+function renderAll(){ renderRoster(); renderHeir(); renderResults(); renderTests(); renderSaved(); }
 function setGoalHint(){ $("goalHint").textContent = GOAL_HINT[readOpts().goal]; }
 function toBuilder(r){ builder={ids:r.ids.slice(), troop:r.troop||"auto"}; $("bTroop").value=builder.troop; renderBuilderSelects(); $("buildH").scrollIntoView({behavior:"smooth"}); }
 const resultAt = i => lastResults.armies[i];
@@ -893,6 +969,7 @@ $("addCustom").onclick = ()=>editDragon(null);
 $("importBtn").onclick = importDialog;
 $("exportBtn").onclick = exportRoster;
 $("aboutBtn").onclick = aboutDialog;
+$("heirBtn").onclick = heirDialog;
 $("acctBtn").onclick = accountDialog;
 $("loadSample").onclick = ()=>{
   const ex = book.rosters.find(r=>r.isSample);

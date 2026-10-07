@@ -122,6 +122,8 @@ table.log td.r,table.log th.r{text-align:right}
 .builder .field{margin-bottom:10px}
 .builder select{width:100%}
 .saved-item{display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap}
+table.heir input{width:68px}
+table.heir td,table.heir th{white-space:nowrap}
 
 dialog{border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink);padding:0;width:min(640px,calc(100vw - 32px));max-height:calc(100vh - 40px)}
 dialog::backdrop{background:rgba(10,12,18,.55)}
@@ -185,6 +187,10 @@ footer{margin-top:28px;padding-top:16px;border-top:1px solid var(--line);color:v
       <button class="btn" id="importBtn">Import</button>
       <button class="btn" id="exportBtn">Export</button>
       <button class="btn ghost" id="loadSample">Load sample</button>
+    </div>
+    <div class="row" style="margin-top:12px;justify-content:space-between;border-top:1px solid var(--line);padding-top:10px">
+      <span class="hint" id="heirSum" style="margin:0;min-width:0;flex:1"></span>
+      <button class="btn sm" id="heirBtn">Heirlooms</button>
     </div>
   </section>
 
@@ -257,6 +263,7 @@ footer{margin-top:28px;padding-top:16px;border-top:1px solid var(--line);color:v
 <div class="toast" id="toast" hidden></div>
 
 <script type="application/json" id="catalogData">/*__CATALOG__*/</script>
+<script type="application/json" id="heirloomData">/*__HEIRLOOMS__*/</script>
 <script type="application/json" id="sampleData">/*__ROSTER__*/</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"></script>
 <script>
