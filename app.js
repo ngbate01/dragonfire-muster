@@ -715,11 +715,11 @@ function nameDialog(title, value, onOk){
 function catalogDialog(){
   const have = new Set(state.roster.map(d=>d.name.toLowerCase()));
   const avail = CATALOG.filter(c=>!have.has(c.name.toLowerCase())).sort((a,b)=>RARITIES.indexOf(a.rarity)-RARITIES.indexOf(b.rarity) || a.name.localeCompare(b.name));
-  if(!avail.length){ toast("You already have every dragon in the list.  Use Custom dragon for a new one."); return; }
+  if(!avail.some(c=>!c.comingSoon)){ toast("You already have every dragon that is out.  Use Custom dragon for a new one."); if(!avail.length) return; }
   openDialog(`<h2 style="font-size:18px">Add dragons you own</h2>
     <p class="hint">Tick the dragons in your Dragon Pit.  Each starts with an estimated power; enter the real number later from Edit for the best results.</p>
     <div class="row"><button class="btn sm" type="button" data-pick="all">All</button>${["legendary","epic","rare"].map(r=>`<button class="btn sm" type="button" data-pick="${r}">${cap(r)}s</button>`).join("")}<button class="btn sm ghost" type="button" data-pick="none">Clear</button></div>
-    <div class="catlist">${avail.map(c=>`<label class="r-${c.rarity}"><input type="checkbox" value="${esc(c.name)}" data-rar="${c.rarity}"><span class="dot"></span><span><b>${esc(c.name)}</b><span class="rs">${c.rarity} · ${c.breed} · ${c.role}</span></span></label>`).join("")}</div>
+    <div class="catlist">${avail.map(c=>`<label class="r-${c.rarity}${c.comingSoon?" soon":""}"><input type="checkbox" value="${esc(c.name)}" data-rar="${c.rarity}" ${c.comingSoon?"disabled":""}><span class="dot"></span><span><b>${esc(c.name)}</b>${c.comingSoon?' <span class="chip likely">Season 2 · coming soon</span>':""}<span class="rs">${c.rarity} · ${c.breed}${c.comingSoon?"":" · "+c.role}</span></span></label>`).join("")}</div>
     <div class="dlg-foot"><span class="hint" id="catCount">0 selected</span><div class="row"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit">Add selected</button></div></div>`,
   ()=>{
     const picked = [...$("dlgForm").querySelectorAll(".catlist input:checked")].map(i=>i.value);
@@ -728,7 +728,7 @@ function catalogDialog(){
     state.isSample=false; persist(); renderAll(); toast(picked.length+" dragon"+(picked.length>1?"s":"")+" added.  Enter real power from Edit.");
   });
   const f = $("dlgForm"), count = ()=>{ $("catCount").textContent = f.querySelectorAll(".catlist input:checked").length+" selected"; };
-  f.querySelectorAll("[data-pick]").forEach(b=>b.onclick=()=>{ const p=b.dataset.pick; f.querySelectorAll(".catlist input").forEach(i=>{ if(p==="all") i.checked=true; else if(p==="none") i.checked=false; else if(i.dataset.rar===p) i.checked=true; }); count(); });
+  f.querySelectorAll("[data-pick]").forEach(b=>b.onclick=()=>{ const p=b.dataset.pick; f.querySelectorAll(".catlist input:not(:disabled)").forEach(i=>{ if(p==="all") i.checked=true; else if(p==="none") i.checked=false; else if(i.dataset.rar===p) i.checked=true; }); count(); });
   f.querySelector(".catlist").onchange = count;
 }
 function editDragon(id){
